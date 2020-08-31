@@ -1,0 +1,14 @@
+version: '3.3'
+services:
+  health-check:
+    build: .
+    restart: always
+    volumes:
+      - ./source:/app/source
+      - ./logs:/app/logs
+    secrets:
+      - health_check_secrets
+
+secrets:
+  health_check_secrets:
+      file: ./secrets
