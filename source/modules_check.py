@@ -3,6 +3,8 @@ import logging.config
 import time
 
 from docker_secrets import getDocketSecrets
+from check_service import checkService
+import mqtt_client
 import requests
 
 logger = logging.getLogger()
@@ -32,3 +34,19 @@ def updateSensorTimer(apiToken):
 
     decodedResponse = response.json()
     assert decodedResponse["result"]
+
+
+@checkService("Modules")
+def checkModules(token):
+    # Test the switch is OFF
+    assert not mqtt_client.switchState
+
+    # Program the switch to turn ON
+    updateSensorTimer(token)
+    mqtt_client.notifySwitchUpdated()
+
+    # Wait for the switch to turn ON
+    mqtt_client.waitForSwitchState(True)
+
+    # Wait for the switch to turn OFF
+    mqtt_client.waitForSwitchState(False)

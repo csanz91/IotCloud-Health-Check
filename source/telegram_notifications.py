@@ -18,4 +18,5 @@ def sendNotification(message):
         message=f"[IotCloud]: {message}",
         token=TELEGRAM_TOKEN,
         chat_id=TELEGRAM_CHAT_ID,
+        parse_mode="markdown",
     )

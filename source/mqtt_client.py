@@ -2,9 +2,11 @@ import logging
 import logging.config
 import random
 import ssl
+import time
 
 from docker_secrets import getDocketSecrets
 import paho.mqtt.client as mqtt
+from check_service import checkService
 
 logger = logging.getLogger()
 
@@ -38,6 +40,7 @@ def on_message(client, userdata, msg):
     switchState = msg.payload == "True"
 
 
+@checkService("MQTT")
 def sendValue():
     if client.is_connected():
         client.publish(mqttHeader + analogSensorId + "/value", random.random() * 100.0)
@@ -46,6 +49,19 @@ def sendValue():
 def notifySwitchUpdated():
     if client.is_connected():
         client.publish(mqttHeader + switchSensorId + "/updatedSensor", f'"{userId}"')
+
+
+def waitForSwitchState(state: bool):
+    # Wait for the switch to change state
+    responseTime = 0
+    timeout = 10
+    while responseTime < timeout:
+        if switchState == state:
+            break
+        time.sleep(0.1)
+        responseTime += 0.1
+    if responseTime >= timeout:
+        raise TimeoutError("The switch did not change in the expected time period")
 
 
 client = mqtt.Client(client_id="HealthChecker")

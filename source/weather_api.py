@@ -2,6 +2,7 @@ import logging
 import logging.config
 
 from docker_secrets import getDocketSecrets
+from check_service import checkService
 import requests
 
 logger = logging.getLogger()
@@ -11,6 +12,7 @@ session = requests.Session()
 userId = getDocketSecrets("iotcloud_userId")
 
 
+@checkService("Weather")
 def checkWeatherData(apiToken):
     headers = {"Authorization": f"Bearer {apiToken}"}
 

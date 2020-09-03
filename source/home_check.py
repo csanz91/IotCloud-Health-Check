@@ -2,6 +2,7 @@ import logging
 import logging.config
 
 from docker_secrets import getDocketSecrets
+from check_service import checkService
 import requests
 
 logger = logging.getLogger()
@@ -13,6 +14,7 @@ homeToken = getDocketSecrets("iotcloud_home_token")
 url = "https://home.iotcloud.es"
 
 
+@checkService("Home API")
 def checkHome():
     headers = {"Authorization": f"Bearer {homeToken}"}
     requestId = "ff36a3cc-ec34-11e6-b1a0-64510650abcf"

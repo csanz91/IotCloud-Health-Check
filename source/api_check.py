@@ -2,6 +2,7 @@ import logging
 import logging.config
 
 from docker_secrets import getDocketSecrets
+from check_service import checkService
 import requests
 
 logger = logging.getLogger()
@@ -16,6 +17,7 @@ iotcloudUserId = getDocketSecrets("iotcloud_userId")
 url = "https://api.iotcloud.es/api/v1/login"
 
 
+@checkService("API")
 def login():
     payload = {
         "email": iotcloudMail,

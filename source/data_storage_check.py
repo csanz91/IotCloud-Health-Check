@@ -3,6 +3,7 @@ import logging.config
 import time
 
 from docker_secrets import getDocketSecrets
+from check_service import checkService
 import requests
 
 logger = logging.getLogger()
@@ -15,6 +16,7 @@ deviceId = getDocketSecrets("iotcloud_deviceId")
 analogSensorId = "healthcheck_analog"
 
 
+@checkService("Data storage")
 def checkSensorData(apiToken):
 
     headers = {"Authorization": f"Bearer {apiToken}"}

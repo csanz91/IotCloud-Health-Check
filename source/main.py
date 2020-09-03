@@ -21,15 +21,7 @@ import data_storage_check
 import weather_api
 import home_check
 import modules_check
-from telegram_notifications import sendNotification
 
-
-mqttNotificationSent = False
-apiNotificationSent = False
-dataStorageNotificationSent = False
-weatherNotificationSent = False
-homeNotificationSent = False
-modulesNotificationSent = False
 
 tick = 0
 tickTime = 30.0
@@ -39,91 +31,26 @@ while True:
     tick += 1
 
     # Send a random value to the MQTT broker
-    try:
-        mqtt_client.sendValue()
-        mqttNotificationSent = False
-    except:
-        if not mqttNotificationSent:
-            sendNotification("MQTT is not working")
-        mqttNotificationSent = True
+    mqtt_client.sendValue()
 
     # 60 * 5 -> 300 seconds, 5 minutes
-    if tick < (60 * 5 / tickTime):
+    if tick < (60 * 1 / tickTime):
         continue
     tick = 0
 
     # Check the Google Home service
-    try:
-        home_check.checkHome()
-        homeNotificationSent = False
-    except:
-        if not homeNotificationSent:
-            sendNotification("Home API is not working")
-        homeNotificationSent = True
+    home_check.checkHome()
 
     # Check the API is working
-    try:
-        token = api_check.login()
-        apiNotificationSent = False
-    except:
-        if not apiNotificationSent:
-            sendNotification("API is not working")
-        apiNotificationSent = True
+    token = api_check.login()
+    if not token:
         continue
 
     # Check data is being saved
-    try:
-        data_storage_check.checkSensorData(token)
-        dataStorageNotificationSent = False
-    except:
-        if not dataStorageNotificationSent:
-            sendNotification("Data storage is not working")
-        dataStorageNotificationSent = True
+    data_storage_check.checkSensorData(token)
 
     # Check the weather API
-    try:
-        weather_api.checkWeatherData(token)
-        weatherNotificationSent = False
-    except:
-        if not weatherNotificationSent:
-            sendNotification("Weather API is not working")
-        weatherNotificationSent = True
+    weather_api.checkWeatherData(token)
 
     # Check the modules service
-    try:
-        # Test the switch is OFF
-        assert not mqtt_client.switchState
-
-        # Program the switch to turn ON
-        modules_check.updateSensorTimer(token)
-        mqtt_client.notifySwitchUpdated()
-
-        # Wait for the switch to turn ON
-        responseTime = 0
-        timeout = 10
-        while responseTime < timeout:
-            if mqtt_client.switchState:
-                break
-            time.sleep(0.1)
-            responseTime += 0.1
-        if responseTime >= timeout:
-            raise TimeoutError("The switch did not change in the expected time period")
-        logger.info(f"Switch ON cleared in {responseTime} seconds")
-
-        # Wait for the switch to turn OFF
-        responseTime = 0
-        timeout = 10
-        while responseTime < timeout:
-            if not mqtt_client.switchState:
-                break
-            time.sleep(0.1)
-            responseTime += 0.1
-        if responseTime >= timeout:
-            raise TimeoutError("The switch did not change in the expected time period")
-        logger.info(f"Switch OFF cleared in {responseTime} seconds")
-
-        modulesNotificationSent = False
-    except:
-        if not modulesNotificationSent:
-            sendNotification("Modules are not working")
-        modulesNotificationSent = True
+    modules_check.checkModules(token)
