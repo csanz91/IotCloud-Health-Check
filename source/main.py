@@ -34,7 +34,7 @@ while True:
     mqtt_client.sendValue()
 
     # 60 * 5 -> 300 seconds, 5 minutes
-    if tick < (60 * 1 / tickTime):
+    if tick < (60 * 5 / tickTime):
         continue
     tick = 0
 
