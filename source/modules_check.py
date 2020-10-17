@@ -22,9 +22,9 @@ def updateSensorTimer(apiToken):
 
     headers = {"Authorization": f"Bearer {apiToken}"}
 
-    # Turn of the switch for 3 seconds
+    # Turn of the switch for 5 seconds
     now = int(time.time())
-    payload = {"sensorMetadata": {"timer": {"initialTimestamp": now, "duration": 3}}}
+    payload = {"sensorMetadata": {"timer": {"initialTimestamp": now, "duration": 5}}}
 
     response = session.put(
         f"https://api.iotcloud.es/api/v1/users/{userId}/locations/{locationId}/devices/{deviceId}/sensors/{switchSensorId}",
