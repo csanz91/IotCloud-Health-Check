@@ -4,7 +4,6 @@ services:
     build: .
     restart: always
     volumes:
-      - ./source:/app/source
       - ./logs:/app/logs
     secrets:
       - health_check_secrets
