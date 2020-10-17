@@ -1,7 +1,7 @@
 version: '3.3'
 services:
   health-check:
-    build: .
+    image: csanz91/health-check:tagname
     restart: always
     volumes:
       - ./logs:/app/logs
