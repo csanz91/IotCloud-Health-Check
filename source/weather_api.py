@@ -1,5 +1,6 @@
 import logging
 import logging.config
+from json.decoder import JSONDecodeError
 
 from docker_secrets import getDocketSecrets
 from check_service import checkService
@@ -26,7 +27,11 @@ def checkWeatherData(apiToken):
         json=payload,
         headers=headers,
     )
-    decodedResponse = response.json()
+    try:
+        decodedResponse = response.json()
+    except JSONDecodeError:
+        logger.info(response.text)
+        raise
     data = decodedResponse["data"]
     assert data["weatherDataExpanded"]["ubi"] == "TERUEL"
     assert len(data["hist"])

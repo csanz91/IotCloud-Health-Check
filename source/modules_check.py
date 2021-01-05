@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import time
+from json.decoder import JSONDecodeError
 
 from docker_secrets import getDocketSecrets
 from check_service import checkService
@@ -32,7 +33,11 @@ def updateSensorTimer(apiToken):
         headers=headers,
     )
 
-    decodedResponse = response.json()
+    try:
+        decodedResponse = response.json()
+    except JSONDecodeError:
+        logger.info(response.text)
+        raise
     assert decodedResponse["result"]
 
 
