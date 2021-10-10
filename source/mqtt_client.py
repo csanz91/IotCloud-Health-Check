@@ -63,7 +63,7 @@ def waitForSwitchState(state: bool):
         raise TimeoutError("The switch did not change in the expected time period")
 
 
-client = mqtt.Client(client_id="HealthChecker")
+client = mqtt.Client(client_id="HealthChecker", transport="websockets")
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
 client.on_message = on_message
@@ -77,5 +77,5 @@ client.tls_set(
     tls_version=ssl.PROTOCOL_TLSv1_2,
 )
 
-client.connect(url, 8883, 30)
+client.connect(url, 443, 30)
 client.loop_start()
