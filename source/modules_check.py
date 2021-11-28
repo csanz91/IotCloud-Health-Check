@@ -15,7 +15,7 @@ session = requests.Session()
 userId = getDocketSecrets("iotcloud_userId")
 locationId = getDocketSecrets("iotcloud_locationId")
 deviceId = getDocketSecrets("iotcloud_deviceId")
-switchSensorId = "healthcheck_toogle"
+switchSensorId = "healthcheck_switch"
 thermostatSensorId = "healthcheck_thermostat"
 
 

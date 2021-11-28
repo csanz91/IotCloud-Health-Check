@@ -10,12 +10,11 @@ from check_service import checkService
 
 logger = logging.getLogger()
 
-userId = getDocketSecrets("iotcloud_userId")
 locationId = getDocketSecrets("iotcloud_locationId")
 deviceId = getDocketSecrets("iotcloud_deviceId")
 mqttToken = getDocketSecrets("iotcloud_mqtt_device_token")
 analogSensorId = "healthcheck_analog"
-switchSensorId = "healthcheck_toogle"
+switchSensorId = "healthcheck_switch"
 
 url = "mqtt.iotcloud.es"
 mqttHeader = f"v1/{locationId}/{deviceId}/"
@@ -26,7 +25,6 @@ def on_connect(client, userdata, flags, rc):
     logger.info(f"Connected with result code: {rc}")
     client.subscribe(mqttHeader + switchSensorId + "/setState")
     client.publish(mqttHeader + "status", "online", retain=True)
-    client.publish(mqttHeader + switchSensorId + "/aux/switch", "v1.0", retain=True)
 
 
 def on_disconnect(client, userdata, rc):
