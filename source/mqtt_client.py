@@ -77,5 +77,9 @@ client.tls_set(
     tls_version=ssl.PROTOCOL_TLSv1_2,
 )
 
+def stop():
+    client.disconnect()
+    client.loop_stop()
+
 client.connect(url, 443, 30)
 client.loop_start()

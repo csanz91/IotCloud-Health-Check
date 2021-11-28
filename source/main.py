@@ -1,7 +1,15 @@
 import logging
 import logging.config
+import signal
 import time
+from threading import Event
 
+import api_check
+import data_storage_check
+import home_check
+import modules_check
+import mqtt_client
+import weather_api
 
 # Logging setup
 logger = logging.getLogger()
@@ -15,23 +23,29 @@ logger.setLevel(logging.INFO)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-import mqtt_client
-import api_check
-import data_storage_check
-import weather_api
-import home_check
-import modules_check
 
+exitEvent = Event()
+
+
+def exit_gracefully(signum, frame):
+    exitEvent.set()
+
+
+signal.signal(signal.SIGINT, exit_gracefully)
+signal.signal(signal.SIGTERM, exit_gracefully)
+
+logger.info("Starting...")
 
 tick = 0
-tickTime = 30.0
-while True:
+tickTime = 1.0
+while not exitEvent.is_set():
 
     time.sleep(tickTime)
     tick += 1
 
     # Send a random value to the MQTT broker
-    mqtt_client.sendValue()
+    if tick % (30 / tickTime) == 0:
+        mqtt_client.sendValue()
 
     # 60 * 5 -> 300 seconds, 5 minutes
     if tick < (60 * 5 / tickTime):
@@ -54,3 +68,7 @@ while True:
 
     # Check the modules service
     modules_check.checkModules(token)
+
+
+mqtt_client.stop()
+logger.info("Exiting...")
