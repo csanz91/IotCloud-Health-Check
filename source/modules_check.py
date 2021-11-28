@@ -48,7 +48,6 @@ def checkModules(token):
 
     # Program the switch to turn ON
     updateSensorTimer(token)
-    mqtt_client.notifySwitchUpdated()
 
     # Wait for the switch to turn ON
     mqtt_client.waitForSwitchState(True)

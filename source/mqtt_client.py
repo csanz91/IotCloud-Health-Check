@@ -45,11 +45,6 @@ def sendValue():
         client.publish(mqttHeader + analogSensorId + "/value", random.random() * 100.0)
 
 
-def notifySwitchUpdated():
-    if client.is_connected():
-        client.publish(mqttHeader + switchSensorId + "/updatedSensor", f'"{userId}"')
-
-
 def waitForSwitchState(state: bool):
     # Wait for the switch to change state
     responseTime = 0
