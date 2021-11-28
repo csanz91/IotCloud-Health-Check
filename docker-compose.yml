@@ -1,8 +1,8 @@
 version: '3.3'
 services:
   health-check:
-    image: csanz91/health-check:tagname
-    restart: always
+    build: .
+    restart: unless-stopped
     volumes:
       - ./logs:/app/logs
     secrets:
