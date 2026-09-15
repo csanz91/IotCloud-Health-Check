@@ -1,4 +1,0 @@
-paho-mqtt
-requests
-notifiers
--e libs/docker_secrets

@@ -1,15 +1,27 @@
-FROM python:3.12
+FROM python:3.14-slim
 
-# Create app directory
+# Install uv binary from official Astral distribution
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
-# Install app dependencies
-COPY ./requirements.txt ./
-COPY ./libs ./libs
-RUN pip install -r requirements.txt
+# Enable bytecode compilation and unbuffered stdout/stderr output
+ENV UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Bundle app source
-COPY ./ /app
+# Copy dependency definition files first for Docker layer caching
+COPY pyproject.toml uv.lock ./
 
-WORKDIR /app/source
-ENTRYPOINT [ "python", "main.py" ]
+# Install production dependencies
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Copy application source code
+COPY . .
+
+# Install the project into the virtual environment
+RUN uv sync --frozen --no-dev
+
+# Create log directory
+RUN mkdir -p logs
+
+ENTRYPOINT ["uv", "run", "iotcloud-health"]

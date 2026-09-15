@@ -1,13 +1,10 @@
-version: '3.3'
 services:
   health-check:
     build: .
+    network_mode: host
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./logs:/app/logs
-    secrets:
-      - health_check_secrets
 
-secrets:
-  health_check_secrets:
-      file: ./secrets
