@@ -64,7 +64,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, exit_gracefully)
     signal.signal(signal.SIGTERM, exit_gracefully)
 
-    last_check_time = 0.0
+    # Initialize last_check_time to ensure checks run immediately on startup
+    last_check_time = -float(settings.check_interval_seconds)
 
     try:
         while not exit_event.is_set():
