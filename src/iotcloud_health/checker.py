@@ -75,4 +75,3 @@ def check_service(
         return wrapper
 
     return decorator
-

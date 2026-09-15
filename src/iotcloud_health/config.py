@@ -34,16 +34,12 @@ class Settings(BaseSettings):
     # Target Location, Device & Sensor Settings (Demo Virtual Suite)
     iotcloud_location_id: str = Field(
         default="5d0000000000000000000001",
-        validation_alias=AliasChoices(
-            "IOTCLOUD_LOCATION_ID", "location_id", "LOCATION_ID"
-        ),
+        validation_alias=AliasChoices("IOTCLOUD_LOCATION_ID", "location_id", "LOCATION_ID"),
         description="Target location ID",
     )
     iotcloud_device_id: str = Field(
         default="demo_virtual_hub_01",
-        validation_alias=AliasChoices(
-            "IOTCLOUD_DEVICE_ID", "device_id", "DEVICE_ID"
-        ),
+        validation_alias=AliasChoices("IOTCLOUD_DEVICE_ID", "device_id", "DEVICE_ID"),
         description="Target device ID",
     )
     thermostat_sensor_id: str = Field(
@@ -67,6 +63,23 @@ class Settings(BaseSettings):
         default=0,
         validation_alias=AliasChoices("TELEGRAM_CHAT_ID", "telegram_chat_id"),
         description="Telegram chat ID for alert notifications",
+    )
+
+    # External Endpoints & SSL Settings
+    public_api_url: str = Field(
+        default="https://api.dev.iotcloud.es/api/v2/health",
+        validation_alias=AliasChoices("PUBLIC_API_URL", "public_api_url", "PUBLIC_API_HEALTH_URL"),
+        description="Public API health endpoint URL (probed externally)",
+    )
+    mqtt_wss_url: str = Field(
+        default="wss://mqtt.iotcloud.es/mqtt",
+        validation_alias=AliasChoices("MQTT_WSS_URL", "mqtt_wss_url", "MQTT_WEBSOCKET_URL"),
+        description="MQTT broker WebSocket Secure URL",
+    )
+    ssl_min_days_valid: int = Field(
+        default=7,
+        validation_alias=AliasChoices("SSL_MIN_DAYS_VALID", "ssl_min_days_valid"),
+        description="Minimum days before SSL expiration before triggering alert",
     )
 
     # Service Settings

@@ -106,4 +106,3 @@ def check_api(session: requests.Session | None = None) -> dict[str, Any]:
         "jwks_keys_count": len(keys),
         "internal_api_status": internal_resp.status_code,
     }
-

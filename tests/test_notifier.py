@@ -85,4 +85,3 @@ def test_telegram_notifier_state_transitions():
     res5 = notifier.report_check("ingestion", healthy=True)
     assert res5 is False
     assert session.post.call_count == 2
-

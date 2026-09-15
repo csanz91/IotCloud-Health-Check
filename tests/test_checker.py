@@ -85,4 +85,3 @@ def test_checker_with_health_check_error():
     assert result is None
     assert len(notifications) == 1
     assert "🔴 [M2M Auth Failed]" in notifications[0]
-

@@ -40,9 +40,7 @@ def check_ingestion(
     try:
         response = sess.post(url, json=payload, headers=headers, timeout=15)
     except requests.RequestException as err:
-        raise HealthCheckError(
-            f"🔴 [Database Error] TimescaleDB query failed: {err}."
-        ) from err
+        raise HealthCheckError(f"🔴 [Database Error] TimescaleDB query failed: {err}.") from err
 
     if response.status_code in (401, 403):
         raise HealthCheckError(
@@ -88,4 +86,3 @@ def check_ingestion(
         int(data_age_seconds),
     )
     return data
-

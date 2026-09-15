@@ -20,7 +20,6 @@ def get_wrapped(func: Any) -> Callable[..., Any]:
     return getattr(func, "__wrapped__", func)
 
 
-
 # ==========================================
 # Check 1: Ingestion & TimescaleDB Tests
 # ==========================================
@@ -433,7 +432,3 @@ def test_check_api_internal_m2m_rejected():
     _, healthy, msg = mock_notif_calls[0]
     assert healthy is False
     assert "🔴 [M2M Auth Failed] Internal API rejected X-M2M-Token on /thermostats." in msg
-
-
-
-

@@ -53,5 +53,3 @@ def test_settings_m2m_defaults_and_aliases():
     assert settings_custom.iotcloud_device_id == "custom-dev-id"
     assert settings_custom.thermostat_sensor_id == "thermostat_custom"
     assert settings_custom.switch_sensor_id == "switch_custom"
-
-

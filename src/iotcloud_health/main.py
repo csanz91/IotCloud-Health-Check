@@ -10,6 +10,8 @@ from threading import Event
 from iotcloud_health.checks.api import check_api
 from iotcloud_health.checks.data_storage import check_ingestion
 from iotcloud_health.checks.modules import check_thermostat
+from iotcloud_health.checks.mqtt import check_mqtt_wss
+from iotcloud_health.checks.public_api import check_public_api
 from iotcloud_health.config import settings
 
 
@@ -76,13 +78,19 @@ def main() -> None:
                 last_check_time = now
                 logger.info("Executing scheduled health checks...")
 
-                # 1. Check Auth0 OIDC Infrastructure Probe & Internal API connectivity
+                # 1. Check Public API Reachability & SSL Certificate Validity
+                check_public_api()
+
+                # 2. Check MQTT Broker Reachability over WSS & WebSocket Upgrade
+                check_mqtt_wss()
+
+                # 3. Check Auth0 OIDC Infrastructure Probe & Internal API connectivity
                 check_api()
 
-                # 2. Check Ingestion Pipeline & TimescaleDB Persistence
+                # 4. Check Ingestion Pipeline & TimescaleDB Persistence
                 check_ingestion()
 
-                # 3. Check Thermostat Discovery and Redis Actuation Roundtrip
+                # 5. Check Thermostat Discovery and Redis Actuation Roundtrip
                 check_thermostat()
 
             # Responsive wait: sleep up to 1 second, waking immediately if shutdown signal arrives

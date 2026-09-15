@@ -15,5 +15,3 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("SWITCH_SENSOR_ID", "demo_switch")
     monkeypatch.setenv("TELEGRAM_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "123456789")
-
-

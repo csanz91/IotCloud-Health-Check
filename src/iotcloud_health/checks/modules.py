@@ -145,4 +145,3 @@ def check_thermostat(
         target_setpoint,
     )
     return new_snapshot
-

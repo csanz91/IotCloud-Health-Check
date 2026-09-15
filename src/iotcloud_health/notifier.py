@@ -118,4 +118,3 @@ def report_check(
         failure_message=failure_message,
         timestamp=timestamp,
     )
-
