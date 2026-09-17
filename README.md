@@ -59,7 +59,7 @@ cp .env.example .env
 Environment variables in `.env`:
 | Variable | Default | Description |
 |---|---|---|
-| `INTERNAL_API_URL` | `http://localhost:8001` | Internal M2M API Base URL |
+| `INTERNAL_API_URL` | `http://api-internal.iotcloud_healthcheck:8001` | Internal M2M API Base URL (`http://api-internal.iotcloud_healthcheck:8001` over WireGuard, or `http://localhost:8001` locally) |
 | `M2M_TOKEN` | *(required)* | Secret token passed via `X-M2M-Token` header |
 | `AUTH0_DOMAIN` | `https://iotauth.eu.auth0.com` | Auth0 domain for OIDC discovery probe |
 | `IOTCLOUD_LOCATION_ID` | `5d0000000000000000000001` | Target demo location ID |
