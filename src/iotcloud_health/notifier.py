@@ -2,14 +2,35 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import UTC, datetime
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from iotcloud_health.config import settings
 
 logger = logging.getLogger("iotcloud_health.notifier")
+
+
+def _create_default_session() -> requests.Session:
+    """Creates a requests.Session with retry logic for transient network/keep-alive errors."""
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["POST"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 class TelegramNotifier:
@@ -23,7 +44,7 @@ class TelegramNotifier:
     ) -> None:
         self.token = token or settings.telegram_token
         self.chat_id = chat_id or settings.telegram_chat_id
-        self._session = session or requests.Session()
+        self._session = session or _create_default_session()
         # check_name -> "HEALTHY" | "FAILING"
         self.states: dict[str, str] = {}
 
@@ -45,8 +66,16 @@ class TelegramNotifier:
             response.raise_for_status()
             logger.info("Telegram notification sent: %s", text)
             return True
-        except requests.RequestException:
-            logger.exception("Failed to send Telegram notification: %s", text)
+        except requests.RequestException as exc:
+            resp_body = getattr(exc.response, "text", None)
+            if resp_body:
+                logger.exception(
+                    "Failed to send Telegram notification (%s): %s",
+                    resp_body,
+                    text,
+                )
+            else:
+                logger.exception("Failed to send Telegram notification: %s", text)
             return False
 
     def report_check(
@@ -67,26 +96,33 @@ class TelegramNotifier:
             # State did not change; do not repeat alerts
             return False
 
-        self.states[check_name] = current_state
-
         if current_state == "FAILING":
             # State transitioned to FAILING -> send failure alert
             ts = timestamp or datetime.now(UTC)
             utc_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+            safe_failure_message = html.escape(failure_message, quote=False)
             text = (
                 "<b>🚨 IotCloud Health Alert</b>\n\n"
-                f"{failure_message}\n\n"
+                f"{safe_failure_message}\n\n"
                 "<i>Service: IotCloud-Health-Check</i>\n"
                 f"<i>Time: {utc_str}</i>"
             )
-            return self.send_message(text, parse_mode="HTML")
+            sent = self.send_message(text, parse_mode="HTML")
+            if sent:
+                self.states[check_name] = current_state
+            return sent
 
         if current_state == "HEALTHY" and previous_state == "FAILING":
             # State transitioned from FAILING to HEALTHY -> send recovery alert
-            text = f"🟢 [Resolved] {check_name} has recovered. All metrics are normal."
-            return self.send_message(text, parse_mode="HTML")
+            safe_check_name = html.escape(check_name, quote=False)
+            text = f"🟢 [Resolved] {safe_check_name} has recovered. All metrics are normal."
+            sent = self.send_message(text, parse_mode="HTML")
+            if sent:
+                self.states[check_name] = current_state
+            return sent
 
         # Initial check was healthy: record state, no alert needed
+        self.states[check_name] = current_state
         return False
 
     def send_notification(self, message: str) -> bool:

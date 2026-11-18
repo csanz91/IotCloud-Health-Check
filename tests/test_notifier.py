@@ -85,3 +85,81 @@ def test_telegram_notifier_state_transitions():
     res5 = notifier.report_check("ingestion", healthy=True)
     assert res5 is False
     assert session.post.call_count == 2
+
+
+def test_telegram_notifier_escapes_html_in_failure_message():
+    session = MagicMock(spec=requests.Session)
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    session.post.return_value = mock_response
+
+    notifier = TelegramNotifier(token="test-token", chat_id=12345, session=session)
+
+    raw_error = (
+        "🔴 [Public API Down] Failed to connect: "
+        "ConnectTimeoutError(<HTTPSConnection(host='api.dev.iotcloud.es', port=443) at 0x7ba6>, "
+        "'Connection timed out & aborted')"
+    )
+    res = notifier.report_check("public_api", healthy=False, failure_message=raw_error)
+
+    assert res is True
+    _, kwargs = session.post.call_args
+    sent_text = kwargs["json"]["text"]
+    assert "<HTTPSConnection" not in sent_text
+    assert "&lt;HTTPSConnection(host='api.dev.iotcloud.es', port=443) at 0x7ba6&gt;" in sent_text
+    assert "&amp; aborted" in sent_text
+    assert "<b>🚨 IotCloud Health Alert</b>" in sent_text
+
+
+def test_telegram_notifier_does_not_send_orphan_resolved_when_failure_alert_fails():
+    session = MagicMock(spec=requests.Session)
+    notifier = TelegramNotifier(token="test-token", chat_id=12345, session=session)
+
+    # 1. Initial check is healthy
+    assert notifier.report_check("public_api", healthy=True) is False
+    assert notifier.states["public_api"] == "HEALTHY"
+
+    # 2. Check fails, but Telegram API call fails (e.g. network error or 400)
+    session.post.side_effect = requests.RequestException("Telegram unreachable")
+    assert notifier.report_check("public_api", healthy=False, failure_message="API Down") is False
+    # State must remain HEALTHY since the failure alert was never delivered
+    assert notifier.states["public_api"] == "HEALTHY"
+
+    # 3. Next cycle check recovers -> must NOT send an orphan [Resolved] message
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    session.post.side_effect = None
+    session.post.return_value = mock_response
+
+    assert notifier.report_check("public_api", healthy=True) is False
+    assert session.post.call_count == 1  # Only the failed attempt from step 2
+
+
+def test_telegram_notifier_retries_alerts_after_failed_delivery():
+    session = MagicMock(spec=requests.Session)
+    notifier = TelegramNotifier(token="test-token", chat_id=12345, session=session)
+
+    # 1. Check fails and delivery fails -> state not updated to FAILING
+    session.post.side_effect = requests.RequestException("Connection reset")
+    assert notifier.report_check("api", healthy=False, failure_message="Auth0 Down") is False
+    assert notifier.states.get("api") != "FAILING"
+
+    # 2. Next cycle still failing and Telegram succeeds -> failure alert is retried and sent
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    session.post.side_effect = None
+    session.post.return_value = mock_response
+
+    assert notifier.report_check("api", healthy=False, failure_message="Auth0 Down") is True
+    assert notifier.states["api"] == "FAILING"
+
+    # 3. Check recovers, but delivery of [Resolved] fails -> state stays FAILING
+    session.post.side_effect = requests.RequestException("Connection reset")
+    assert notifier.report_check("api", healthy=True) is False
+    assert notifier.states["api"] == "FAILING"
+
+    # 4. Next cycle still healthy and Telegram succeeds -> [Resolved] alert is retried and sent
+    session.post.side_effect = None
+    session.post.return_value = mock_response
+    assert notifier.report_check("api", healthy=True) is True
+    assert notifier.states["api"] == "HEALTHY"

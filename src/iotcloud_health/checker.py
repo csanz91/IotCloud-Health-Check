@@ -52,8 +52,8 @@ def check_service(
                     report_check(service_name, healthy=True)
                 elif failure_reported:
                     logger.info("%s is now working again", service_name)
-                    notifier(f"{service_name} is now working \u2705")
-                    failure_reported = False
+                    if notifier(f"{service_name} is now working \u2705") is not False:
+                        failure_reported = False
                 return result
             except Exception as exc:
                 logger.exception("Health check failed for service: %s", service_name)
@@ -67,8 +67,7 @@ def check_service(
                     notifier.report_check(service_name, healthy=False, failure_message=failure_msg)
                 elif notifier is send_notification:
                     report_check(service_name, healthy=False, failure_message=failure_msg)
-                elif not failure_reported:
-                    notifier(failure_msg)
+                elif not failure_reported and notifier(failure_msg) is not False:
                     failure_reported = True
                 return None
 
