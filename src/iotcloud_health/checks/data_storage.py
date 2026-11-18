@@ -8,7 +8,13 @@ from typing import Any
 
 import requests
 
-from iotcloud_health.checker import HealthCheckError, check_service
+from iotcloud_health.checker import (
+    HealthCheckError,
+    check_service,
+    describe_error,
+    get_session,
+    response_detail,
+)
 from iotcloud_health.config import settings
 
 logger = logging.getLogger("iotcloud_health.checks.data_storage")
@@ -21,7 +27,7 @@ def check_ingestion(
 ) -> list[list[Any]]:
     """Verifies that the full ingestion pipeline writes time-series telemetry to TimescaleDB."""
     target_sensor = sensor_id or settings.thermostat_sensor_id
-    sess = session or requests.Session()
+    sess = session or get_session()
     url = f"{settings.internal_api_url.rstrip('/')}/sensors/{target_sensor}/data"
 
     headers = {
@@ -40,7 +46,9 @@ def check_ingestion(
     try:
         response = sess.post(url, json=payload, headers=headers, timeout=15)
     except requests.RequestException as err:
-        raise HealthCheckError(f"🔴 [Database Error] TimescaleDB query failed: {err}.") from err
+        raise HealthCheckError(
+            f"🔴 [Database Error] TimescaleDB query failed: {describe_error(err)}."
+        ) from err
 
     if response.status_code in (401, 403):
         raise HealthCheckError(
@@ -49,8 +57,8 @@ def check_ingestion(
             status_code=response.status_code,
         )
 
-    if response.status_code >= 500 or response.status_code != 200:
-        detail = response.text
+    if response.status_code != 200:
+        detail = response_detail(response)
         raise HealthCheckError(
             f"🔴 [Database Error] TimescaleDB query failed with HTTP {response.status_code}: "
             f"{detail}.",
@@ -58,17 +66,24 @@ def check_ingestion(
             detail=detail,
         )
 
-    decoded = response.json()
-    data: list[list[Any]] = decoded.get("data", [])
+    try:
+        decoded = response.json()
+        data: list[list[Any]] = decoded.get("data") or []
+        newest_ts_ms = max(float(point[1]) for point in data) if data else None
+    except (ValueError, AttributeError, TypeError, IndexError) as err:
+        raise HealthCheckError(
+            f"🔴 [Database Error] /sensors/{target_sensor}/data returned an unexpected "
+            f"payload: {response_detail(response)}."
+        ) from err
 
-    if not data:
+    if newest_ts_ms is None:
         raise HealthCheckError(
             "🔴 [Ingestion Pipeline Failed] 0 readings recorded in TimescaleDB for "
-            f"sensor '{target_sensor}' in the last 30 minutes. Check if Rust Gateway "
-            "or MQTT broker is down."
+            f"sensor '{target_sensor}' in the last 30 minutes. Suspects: the virtual "
+            "device runtime in automation_runner (publishes this sensor every 5 min), "
+            "EMQX, or Rust Gateway."
         )
 
-    newest_ts_ms = max(point[1] for point in data)
     newest_dt = datetime.fromtimestamp(newest_ts_ms / 1000.0, tz=UTC)
     data_age_seconds = (now_utc - newest_dt).total_seconds()
 
@@ -76,7 +91,8 @@ def check_ingestion(
         minutes_ago = round(data_age_seconds / 60)
         raise HealthCheckError(
             f"🔴 [Ingestion Stalled] Telemetry for '{target_sensor}' is stale. Latest point "
-            f"recorded at {newest_dt.isoformat()} ({minutes_ago}m ago, threshold: 15m)."
+            f"recorded at {newest_dt.isoformat()} ({minutes_ago}m ago, threshold: 15m). "
+            "Suspects: automation_runner virtual runtime, EMQX, or Rust Gateway."
         )
 
     logger.info(

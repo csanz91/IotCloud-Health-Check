@@ -386,8 +386,83 @@ def test_check_api_auth0_down():
     assert name == "api"
     assert healthy is False
     assert (
-        "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint is unreachable or returning HTTP 503"
+        "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint returned HTTP 503: Service Unavailable"
     ) in msg
+
+
+def test_check_api_jwks_failure_names_jwks_endpoint():
+    session = MagicMock(spec=requests.Session)
+    oidc_resp = MagicMock(status_code=200)
+    oidc_resp.json.return_value = {"issuer": "https://iotauth.eu.auth0.com/"}
+    jwks_resp = MagicMock(status_code=500, text="boom")
+    session.get.side_effect = lambda url, **kw: (
+        oidc_resp if "openid-configuration" in url else jwks_resp
+    )
+
+    notifier = MagicMock(spec=TelegramNotifier)
+    decorated = check_service("api", notifier=notifier)(get_wrapped(check_api))
+    assert decorated(session=session) is None
+    msg = notifier.report_check.call_args.kwargs["failure_message"]
+    assert "Auth0 JWKS endpoint returned HTTP 500" in msg
+    assert "OIDC discovery" not in msg
+
+
+def test_check_api_truncates_huge_error_bodies():
+    session = MagicMock(spec=requests.Session)
+    oidc_resp = MagicMock(status_code=502, text="<html>" + "x" * 50_000 + "</html>")
+    session.get.return_value = oidc_resp
+
+    notifier = MagicMock(spec=TelegramNotifier)
+    decorated = check_service("api", notifier=notifier)(get_wrapped(check_api))
+    assert decorated(session=session) is None
+    msg = notifier.report_check.call_args.kwargs["failure_message"]
+    assert len(msg) < 600
+    assert "[truncated]" in msg
+
+
+def test_check_thermostat_null_initial_setpoint_still_dispatches_22():
+    session = MagicMock(spec=requests.Session)
+    disc_resp = MagicMock(status_code=200)
+    disc_resp.json.return_value = [{"sensor_id": "demo_thermostat"}]
+    snap_resp = MagicMock(status_code=200, text='{"setpoint": null}')
+    snap_resp.json.return_value = {"setpoint": None}
+    new_snap = MagicMock(status_code=200)
+    new_snap.json.return_value = {"setpoint": 22.0}
+    session.get.side_effect = [disc_resp, snap_resp, new_snap]
+    session.post.return_value = MagicMock(status_code=200)
+
+    result = get_wrapped(check_thermostat)("demo_thermostat", session=session, wait_delay=0)
+    assert result == {"setpoint": 22.0}
+    assert session.post.call_args.kwargs["json"]["setpoint"] == 22.0
+
+
+def test_check_thermostat_malformed_initial_snapshot_fails_without_dispatch():
+    session = MagicMock(spec=requests.Session)
+    disc_resp = MagicMock(status_code=200)
+    disc_resp.json.return_value = [{"sensor_id": "demo_thermostat"}]
+    snap_resp = MagicMock(status_code=200, text='["not", "an", "object"]')
+    snap_resp.json.return_value = ["not", "an", "object"]
+    session.get.side_effect = [disc_resp, snap_resp]
+
+    notifier = MagicMock(spec=TelegramNotifier)
+    decorated = check_service("thermostat", notifier=notifier)(get_wrapped(check_thermostat))
+    assert decorated("demo_thermostat", session=session, wait_delay=0) is None
+    msg = notifier.report_check.call_args.kwargs["failure_message"]
+    assert "[Action Dispatch Error] Initial snapshot" in msg
+    session.post.assert_not_called()
+
+
+def test_check_thermostat_discovery_non_list_payload():
+    session = MagicMock(spec=requests.Session)
+    disc_resp = MagicMock(status_code=200, text='{"error": "nope"}')
+    disc_resp.json.return_value = {"error": "nope"}
+    session.get.return_value = disc_resp
+
+    notifier = MagicMock(spec=TelegramNotifier)
+    decorated = check_service("thermostat", notifier=notifier)(get_wrapped(check_thermostat))
+    assert decorated("demo_thermostat", session=session, wait_delay=0) is None
+    msg = notifier.report_check.call_args.kwargs["failure_message"]
+    assert "[Thermostat Discovery Failed]" in msg and "invalid payload" in msg
 
 
 def test_check_api_internal_m2m_rejected():
@@ -399,7 +474,7 @@ def test_check_api_internal_m2m_rejected():
 
     jwks_resp = MagicMock()
     jwks_resp.status_code = 200
-    jwks_resp.json.return_value = {"keys": []}
+    jwks_resp.json.return_value = {"keys": [{"kty": "RSA", "kid": "key-1"}]}
 
     internal_resp = MagicMock()
     internal_resp.status_code = 401
@@ -432,3 +507,16 @@ def test_check_api_internal_m2m_rejected():
     _, healthy, msg = mock_notif_calls[0]
     assert healthy is False
     assert "🔴 [M2M Auth Failed] Internal API rejected X-M2M-Token on /thermostats." in msg
+
+
+def test_check_ingestion_malformed_payload_reports_tailored_error():
+    session = MagicMock(spec=requests.Session)
+    mock_resp = MagicMock(status_code=200, text='{"data": [["oops"]]}')
+    mock_resp.json.return_value = {"data": [["oops"]]}
+    session.post.return_value = mock_resp
+
+    notifier = MagicMock(spec=TelegramNotifier)
+    decorated = check_service("ingestion", notifier=notifier)(get_wrapped(check_ingestion))
+    assert decorated("demo_thermostat", session=session) is None
+    msg = notifier.report_check.call_args.kwargs["failure_message"]
+    assert "unexpected payload" in msg

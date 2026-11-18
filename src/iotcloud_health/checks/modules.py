@@ -8,10 +8,26 @@ from typing import Any
 
 import requests
 
-from iotcloud_health.checker import HealthCheckError, check_service
+from iotcloud_health.checker import (
+    HealthCheckError,
+    check_service,
+    describe_error,
+    get_session,
+    response_detail,
+)
 from iotcloud_health.config import settings
 
 logger = logging.getLogger("iotcloud_health.checks.modules")
+
+
+def _read_setpoint(snapshot: Any) -> float:
+    """Extracts the numeric setpoint from a snapshot payload; raises ValueError if absent."""
+    if not isinstance(snapshot, dict):
+        raise ValueError(f"snapshot is not an object: {snapshot!r}")
+    value = snapshot.get("setpoint")
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise ValueError(f"snapshot has no numeric setpoint: {value!r}")
+    return float(value)
 
 
 @check_service("thermostat")
@@ -21,7 +37,7 @@ def check_thermostat(
     wait_delay: float = 2.5,
 ) -> dict[str, Any]:
     """Ensures thermostat discovery is healthy and actuation roundtrips to Redis snapshot."""
-    sess = session or requests.Session()
+    sess = session or get_session()
     base_url = settings.internal_api_url.rstrip("/")
     m2m_headers = {"X-M2M-Token": settings.m2m_token}
     json_headers = {"X-M2M-Token": settings.m2m_token, "Content-Type": "application/json"}
@@ -33,12 +49,13 @@ def check_thermostat(
         disc_resp = sess.get(discovery_url, headers=m2m_headers, timeout=15)
     except requests.RequestException as err:
         raise HealthCheckError(
-            f"🔴 [Thermostat Discovery Failed] GET /thermostats connection failed: {err}. "
+            f"🔴 [Thermostat Discovery Failed] GET /thermostats connection failed: "
+            f"{describe_error(err)}. "
             "Automation Runner cannot discover climate controllers."
         ) from err
 
     if disc_resp.status_code != 200:
-        detail = disc_resp.text
+        detail = response_detail(disc_resp)
         raise HealthCheckError(
             f"🔴 [Thermostat Discovery Failed] GET /thermostats returned HTTP "
             f"{disc_resp.status_code}: {detail}. Automation Runner cannot discover "
@@ -49,12 +66,13 @@ def check_thermostat(
 
     try:
         thermostats = disc_resp.json()
-        assert isinstance(thermostats, list)
-    except Exception as err:
+    except ValueError:
+        thermostats = None
+    if not isinstance(thermostats, list):
         raise HealthCheckError(
             "🔴 [Thermostat Discovery Failed] GET /thermostats returned invalid payload: "
-            f"{disc_resp.text}. Automation Runner cannot discover climate controllers."
-        ) from err
+            f"{response_detail(disc_resp)}. Automation Runner cannot discover climate controllers."
+        )
 
     logger.debug("Discovered %d thermostats", len(thermostats))
 
@@ -66,11 +84,11 @@ def check_thermostat(
     except requests.RequestException as err:
         raise HealthCheckError(
             f"🔴 [Action Dispatch Error] Failed to query initial snapshot on "
-            f"/sensors/{target_sensor}/snapshot: {err}."
+            f"/sensors/{target_sensor}/snapshot: {describe_error(err)}."
         ) from err
 
     if snap_resp.status_code != 200:
-        detail = snap_resp.text
+        detail = response_detail(snap_resp)
         raise HealthCheckError(
             "🔴 [Action Dispatch Error] Failed to get initial snapshot on "
             f"/sensors/{target_sensor}/snapshot: HTTP {snap_resp.status_code} - {detail}.",
@@ -78,8 +96,28 @@ def check_thermostat(
             detail=detail,
         )
 
-    init_snapshot = snap_resp.json()
-    current_setpoint = float(init_snapshot.get("setpoint", 0.0))
+    try:
+        init_snapshot = snap_resp.json()
+        # A missing/null setpoint (fresh device, flushed Redis) is "unknown": dispatch
+        # 22.0 anyway so the roundtrip itself repopulates it. Only malformed data fails.
+        if isinstance(init_snapshot, dict) and init_snapshot.get("setpoint") is None:
+            current_setpoint = 0.0
+        else:
+            current_setpoint = _read_setpoint(init_snapshot)
+    except ValueError as err:
+        raise HealthCheckError(
+            f"🔴 [Action Dispatch Error] Initial snapshot on /sensors/{target_sensor}/snapshot "
+            f"is invalid: {response_detail(snap_resp)}."
+        ) from err
+
+    # The demo device is a virtual device run by automation_runner. If it is offline,
+    # say so instead of reporting a confusing actuation failure.
+    if isinstance(init_snapshot, dict) and init_snapshot.get("online") is False:
+        reason = init_snapshot.get("error") or "device status is not 'online'"
+        raise HealthCheckError(
+            f"🔴 [Demo Device Offline] '{target_sensor}' is offline ({reason}). The virtual "
+            "device runtime in automation_runner is down or disconnected from EMQX."
+        )
 
     # 2. Determine target setpoint: toggle between 22.0 and 21.5
     target_setpoint = 21.5 if abs(current_setpoint - 22.0) < 0.05 else 22.0
@@ -95,11 +133,11 @@ def check_thermostat(
     except requests.RequestException as err:
         raise HealthCheckError(
             f"🔴 [Action Dispatch Error] Failed to set setpoint on "
-            f"/sensors/{target_sensor}/actions/setpoint: {err}."
+            f"/sensors/{target_sensor}/actions/setpoint: {describe_error(err)}."
         ) from err
 
     if act_resp.status_code != 200:
-        detail = act_resp.text
+        detail = response_detail(act_resp)
         raise HealthCheckError(
             "🔴 [Action Dispatch Error] Failed to set setpoint on "
             f"/sensors/{target_sensor}/actions/setpoint: HTTP {act_resp.status_code} - {detail}.",
@@ -120,12 +158,11 @@ def check_thermostat(
             snap_resp_new = sess.get(snapshot_url, headers=m2m_headers, timeout=15)
             if snap_resp_new.status_code == 200:
                 new_snapshot = snap_resp_new.json()
-                new_sp = float(new_snapshot.get("setpoint", -999.0))
-                if abs(new_sp - target_setpoint) < 0.05:
+                if abs(_read_setpoint(new_snapshot) - target_setpoint) < 0.05:
                     reflected = True
                     break
-        except requests.RequestException:
-            pass
+        except (requests.RequestException, ValueError) as err:
+            logger.debug("Snapshot poll for '%s' not usable yet: %s", target_sensor, err)
 
         if wait_delay <= 0:
             break
@@ -135,7 +172,8 @@ def check_thermostat(
         raise HealthCheckError(
             f"🔴 [Automation Actuation Failure] Setpoint command ({target_setpoint}) was sent, "
             f"but Redis snapshot still reports {current_sp_reported} after 5s. "
-            "Check Redis 'iotcloud:actions' delivery and Rust Gateway."
+            "Path: Internal API → Redis 'iotcloud:actions' → Rust Gateway → EMQX → "
+            "automation_runner virtual device → EMQX → Rust Gateway → Redis."
         )
 
     logger.info(

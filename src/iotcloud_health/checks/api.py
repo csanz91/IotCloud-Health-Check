@@ -7,70 +7,71 @@ from typing import Any
 
 import requests
 
-from iotcloud_health.checker import HealthCheckError, check_service
+from iotcloud_health.checker import (
+    HealthCheckError,
+    check_service,
+    describe_error,
+    get_session,
+    response_detail,
+)
 from iotcloud_health.config import settings
 
 logger = logging.getLogger("iotcloud_health.checks.api")
+
+_AUTH0_IMPACT = "Mobile app users will be unable to log in."
+
+
+def _fetch_auth0_json(sess: requests.Session, url: str, endpoint_name: str) -> Any:
+    """GETs an Auth0 well-known document, raising a tailored HealthCheckError on failure."""
+    try:
+        resp = sess.get(url, timeout=10)
+    except requests.RequestException as err:
+        raise HealthCheckError(
+            f"🔴 [Auth0 Down] Auth0 {endpoint_name} endpoint is unreachable: "
+            f"{describe_error(err)}. {_AUTH0_IMPACT}"
+        ) from err
+
+    if resp.status_code != 200:
+        detail = response_detail(resp)
+        raise HealthCheckError(
+            f"🔴 [Auth0 Down] Auth0 {endpoint_name} endpoint returned HTTP "
+            f"{resp.status_code}: {detail}. {_AUTH0_IMPACT}",
+            status_code=resp.status_code,
+            detail=detail,
+        )
+
+    try:
+        return resp.json()
+    except ValueError as err:
+        raise HealthCheckError(
+            f"🔴 [Auth0 Down] Auth0 {endpoint_name} endpoint returned invalid JSON: "
+            f"{response_detail(resp)}. {_AUTH0_IMPACT}"
+        ) from err
 
 
 @check_service("api")
 def check_api(session: requests.Session | None = None) -> dict[str, Any]:
     """Probes Auth0 OIDC endpoints and verifies internal API connectivity."""
-    sess = session or requests.Session()
+    sess = session or get_session()
 
     # 1. Auth0 OIDC Discovery Contract
     auth0_domain = settings.auth0_domain.rstrip("/")
-    oidc_url = f"{auth0_domain}/.well-known/openid-configuration"
-    try:
-        oidc_resp = sess.get(oidc_url, timeout=10)
-    except requests.RequestException as err:
+    oidc_data = _fetch_auth0_json(
+        sess, f"{auth0_domain}/.well-known/openid-configuration", "OIDC discovery"
+    )
+    issuer = oidc_data.get("issuer", "") if isinstance(oidc_data, dict) else ""
+    if not isinstance(issuer, str) or auth0_domain not in issuer:
         raise HealthCheckError(
-            "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint is unreachable or returning "
-            f"HTTP 0: {err}. Mobile app users will be unable to log in."
-        ) from err
-
-    if oidc_resp.status_code != 200:
-        detail = oidc_resp.text
-        raise HealthCheckError(
-            "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint is unreachable or returning "
-            f"HTTP {oidc_resp.status_code}: {detail}. Mobile app users will be unable to log in.",
-            status_code=oidc_resp.status_code,
-            detail=detail,
-        )
-
-    oidc_data = oidc_resp.json()
-    issuer = oidc_data.get("issuer", "")
-    if auth0_domain not in issuer:
-        raise HealthCheckError(
-            f"🔴 [Auth0 Down] Auth0 OIDC discovery endpoint returned unexpected issuer '{issuer}'. "
-            "Mobile app users will be unable to log in."
+            f"🔴 [Auth0 Down] Auth0 OIDC discovery endpoint returned unexpected issuer "
+            f"'{issuer}'. {_AUTH0_IMPACT}"
         )
 
     # 2. Auth0 JWKS Endpoint Contract
-    jwks_url = f"{auth0_domain}/.well-known/jwks.json"
-    try:
-        jwks_resp = sess.get(jwks_url, timeout=10)
-    except requests.RequestException as err:
+    jwks_data = _fetch_auth0_json(sess, f"{auth0_domain}/.well-known/jwks.json", "JWKS")
+    keys = jwks_data.get("keys") if isinstance(jwks_data, dict) else None
+    if not isinstance(keys, list) or not keys:
         raise HealthCheckError(
-            "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint is unreachable or returning "
-            f"HTTP 0: {err}. Mobile app users will be unable to log in."
-        ) from err
-
-    if jwks_resp.status_code != 200:
-        detail = jwks_resp.text
-        raise HealthCheckError(
-            "🔴 [Auth0 Down] Auth0 OIDC discovery endpoint is unreachable or returning "
-            f"HTTP {jwks_resp.status_code}: {detail}. Mobile app users will be unable to log in.",
-            status_code=jwks_resp.status_code,
-            detail=detail,
-        )
-
-    jwks_data = jwks_resp.json()
-    keys = jwks_data.get("keys")
-    if not isinstance(keys, list):
-        raise HealthCheckError(
-            "🔴 [Auth0 Down] Auth0 JWKS endpoint did not return valid key set. "
-            "Mobile app users will be unable to log in."
+            f"🔴 [Auth0 Down] Auth0 JWKS endpoint did not return any signing keys. {_AUTH0_IMPACT}"
         )
 
     # 3. Internal API Connectivity Probe
@@ -81,7 +82,7 @@ def check_api(session: requests.Session | None = None) -> dict[str, Any]:
     except requests.RequestException as err:
         raise HealthCheckError(
             f"🔴 [Internal API Down] Failed to connect to Internal API at "
-            f"{settings.internal_api_url}: {err}."
+            f"{settings.internal_api_url}: {describe_error(err)}."
         ) from err
 
     if internal_resp.status_code in (401, 403):
@@ -92,7 +93,7 @@ def check_api(session: requests.Session | None = None) -> dict[str, Any]:
         )
 
     if internal_resp.status_code != 200:
-        detail = internal_resp.text
+        detail = response_detail(internal_resp)
         raise HealthCheckError(
             f"🔴 [Internal API Error] Internal API returned HTTP {internal_resp.status_code}: "
             f"{detail}.",

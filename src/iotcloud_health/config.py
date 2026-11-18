@@ -76,10 +76,44 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MQTT_WSS_URL", "mqtt_wss_url", "MQTT_WEBSOCKET_URL"),
         description="MQTT broker WebSocket Secure URL",
     )
+    mqtt_tcp_host: str = Field(
+        default="mqtt.iotcloud.es",
+        validation_alias=AliasChoices("MQTT_TCP_HOST", "mqtt_tcp_host"),
+        description="Host devices use for plain MQTT (device login check)",
+    )
+    mqtt_tcp_port: int = Field(
+        default=1883,
+        validation_alias=AliasChoices("MQTT_TCP_PORT", "mqtt_tcp_port"),
+        description="Plain MQTT port devices use",
+    )
+    ota_url: str = Field(
+        default="https://ota.iotcloud.es/",
+        validation_alias=AliasChoices("OTA_URL", "ota_url"),
+        description="OTA firmware server URL (self-signed cert, not verified)",
+    )
+    watched_sensor_ids: str = Field(
+        default="",
+        validation_alias=AliasChoices("WATCHED_SENSOR_IDS", "watched_sensor_ids"),
+        description="Comma-separated sensor IDs whose devices must stay online",
+    )
     ssl_min_days_valid: int = Field(
         default=7,
         validation_alias=AliasChoices("SSL_MIN_DAYS_VALID", "ssl_min_days_valid"),
         description="Minimum days before SSL expiration before triggering alert",
+    )
+
+    # Alerting
+    alert_after_failures: int = Field(
+        default=2,
+        ge=1,
+        validation_alias=AliasChoices("ALERT_AFTER_FAILURES", "alert_after_failures"),
+        description="Consecutive failed runs of a check before a Telegram alert is sent",
+    )
+
+    alert_timezone: str = Field(
+        default="Europe/Madrid",
+        validation_alias=AliasChoices("ALERT_TIMEZONE", "alert_timezone"),
+        description="IANA timezone used for times shown in alerts",
     )
 
     # Service Settings
@@ -98,6 +132,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LOG_LEVEL", "log_level"),
         description="Logging level",
     )
+
+    @property
+    def watched_sensor_id_list(self) -> list[str]:
+        return [s.strip() for s in self.watched_sensor_ids.split(",") if s.strip()]
 
 
 settings = Settings()

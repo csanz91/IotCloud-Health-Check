@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import logging
-import ssl
 from typing import Any
 from urllib.parse import urlparse
 
 import requests
 
-from iotcloud_health.checker import HealthCheckError, check_service
-from iotcloud_health.checks.ssl_helper import get_ssl_days_remaining
+from iotcloud_health.checker import (
+    HealthCheckError,
+    check_service,
+    describe_error,
+    get_session,
+    response_detail,
+)
+from iotcloud_health.checks.ssl_helper import verify_certificate
 from iotcloud_health.config import settings
 
 logger = logging.getLogger("iotcloud_health.checks.public_api")
@@ -23,7 +28,7 @@ def check_public_api(
 ) -> dict[str, Any]:
     """Probes the public API endpoint externally and verifies SSL certificate validity."""
     target_url = url or settings.public_api_url
-    sess = session or requests.Session()
+    sess = session or get_session()
 
     parsed = urlparse(target_url)
     host = parsed.hostname or ""
@@ -34,36 +39,26 @@ def check_public_api(
 
     # 1. SSL Certificate Verification (if HTTPS)
     if is_https and host:
-        try:
-            ssl_days_remaining = get_ssl_days_remaining(host, port)
-        except (OSError, ssl.SSLError, ValueError) as err:
-            raise HealthCheckError(
-                f"🔴 [Public SSL Failed] Failed SSL handshake for {host}:{port}: {err}. "
-                "Mobile app users cannot establish a secure connection."
-            ) from err
-
-        if ssl_days_remaining < 0:
-            raise HealthCheckError(
-                f"🔴 [Public SSL Expired] SSL certificate for {host} has expired! "
-                "Let's Encrypt renewal failed; mobile app connectivity is blocked."
-            )
-        if ssl_days_remaining <= settings.ssl_min_days_valid:
-            raise HealthCheckError(
-                f"🔴 [Public SSL Expiring Soon] SSL certificate for {host} expires in "
-                f"{ssl_days_remaining} days! Immediate certificate renewal required."
-            )
+        ssl_days_remaining = verify_certificate(
+            host,
+            port,
+            label="Public",
+            impact="Mobile app users cannot establish a secure connection.",
+            min_days_valid=settings.ssl_min_days_valid,
+        )
 
     # 2. HTTP Endpoint Reachability Probe
     try:
         resp = sess.get(target_url, timeout=10)
     except requests.RequestException as err:
         raise HealthCheckError(
-            f"🔴 [Public API Down] Failed to connect to Public API at {target_url}: {err}. "
+            f"🔴 [Public API Down] Failed to connect to Public API at {target_url}: "
+            f"{describe_error(err)}. "
             "External mobile app access is blocked."
         ) from err
 
     if resp.status_code != 200:
-        detail = resp.text[:200]
+        detail = response_detail(resp)
         raise HealthCheckError(
             f"🔴 [Public API Error] Public API at {target_url} returned HTTP "
             f"{resp.status_code}: {detail}. Mobile app users may experience outages.",
@@ -71,18 +66,17 @@ def check_public_api(
             detail=detail,
         )
 
-    # 3. Payload sanity verification (if JSON)
+    # 3. Payload sanity verification (only if the body is a JSON object with a status)
     try:
         data = resp.json()
-        status_val = data.get("status") if isinstance(data, dict) else None
-        if status_val and status_val != "healthy":
-            raise HealthCheckError(
-                f"🔴 [Public API Unhealthy] Public API returned status '{status_val}'. "
-                "Expected 'healthy'."
-            )
-    except Exception as exc:
-        if isinstance(exc, HealthCheckError):
-            raise exc
+    except ValueError:
+        data = None
+    status_val = data.get("status") if isinstance(data, dict) else None
+    if status_val and status_val != "healthy":
+        raise HealthCheckError(
+            f"🔴 [Public API Unhealthy] Public API returned status '{status_val}'. "
+            "Expected 'healthy'."
+        )
 
     logger.info(
         "Public API health check passed (%s, status 200, SSL %s days remaining)",

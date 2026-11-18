@@ -34,3 +34,44 @@ def test_get_ssl_days_remaining_missing_cert():
         mock_ctx.return_value.wrap_socket.return_value.__enter__.return_value = mock_ssock
         with pytest.raises(ValueError, match="No SSL certificate or notAfter"):
             get_ssl_days_remaining("example.com", 443)
+
+
+def test_verify_certificate_reports_expired_cert_from_handshake_failure():
+    import ssl
+
+    import pytest
+
+    from iotcloud_health.checker import HealthCheckError
+    from iotcloud_health.checks.ssl_helper import verify_certificate
+
+    err = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    err.verify_code = 10  # X509_V_ERR_CERT_HAS_EXPIRED
+    err.verify_message = "certificate has expired"
+
+    with (
+        patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", side_effect=err),
+        pytest.raises(HealthCheckError) as exc_info,
+    ):
+        verify_certificate("example.com", 443, label="Public", impact="X.", min_days_valid=7)
+    assert "[Public SSL Expired]" in exc_info.value.message
+
+
+def test_verify_certificate_reports_other_verification_failures():
+    import ssl
+
+    import pytest
+
+    from iotcloud_health.checker import HealthCheckError
+    from iotcloud_health.checks.ssl_helper import verify_certificate
+
+    err = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    err.verify_code = 62  # hostname mismatch
+    err.verify_message = "Hostname mismatch"
+
+    with (
+        patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", side_effect=err),
+        pytest.raises(HealthCheckError) as exc_info,
+    ):
+        verify_certificate("example.com", 443, label="MQTT", impact="X.", min_days_valid=7)
+    assert "[MQTT SSL Failed]" in exc_info.value.message
+    assert "Hostname mismatch" in exc_info.value.message

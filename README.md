@@ -4,20 +4,27 @@ Synthetic health monitoring and alerting service for the IotCloud platform. Buil
 
 ## Core Synthetic Health Checks
 
-1. **Auth0 OIDC Infrastructure Probe & Internal API (`check_api`)**:
-   - Validates Auth0 OIDC Discovery endpoint (`/.well-known/openid-configuration`) and JWKS endpoint (`/.well-known/jwks.json`) without credentials/passwords.
-   - Verifies Internal API connectivity and authentication.
-2. **Data Ingestion & TimescaleDB Persistence (`check_ingestion`)**:
-   - Queries recent time-series data points from TimescaleDB via Internal API (`POST /sensors/{sensor_id}/data`).
-   - Verifies that data points have arrived within the last 15 minutes (threshold: 900s, Virtual Poller 300s interval).
-3. **Thermostat Automations & Actuation Roundtrip (`check_thermostat`)**:
-   - Verifies thermostat controller discovery (`GET /thermostats`).
-   - Dispatches a target setpoint change (`POST /sensors/{sensor_id}/actions/setpoint`).
-   - Verifies live Redis state snapshot reflection (`GET /sensors/{sensor_id}/snapshot`).
-4. **State-Transition Telegram Alerting**:
-   - Dispatches tailored HTML alerts to Telegram exclusively on state changes (`HEALTHY -> FAILING`).
-   - Dispatches recovery notification on recovery (`FAILING -> HEALTHY`).
-   - Suppresses redundant notifications while status is unchanged.
+Every cycle (default 5 minutes) runs these checks in order:
+
+1. **Public API & SSL (`public_api`)**: probes `PUBLIC_API_URL` externally, expects HTTP 200 (and `"status": "healthy"` if the body reports a status), and alerts when the TLS certificate is invalid, expired, or within `SSL_MIN_DAYS_VALID` days of expiry.
+2. **MQTT over WSS (`mqtt_wss`)**: the app's path. Validates the broker's TLS certificate, performs a WebSocket upgrade with the `mqtt` subprotocol and verifies the `101` response.
+3. **MQTT device login (`mqtt_device`)**: the devices' path. Fetches the demo device's MQTT token (`GET /devices/{IOTCLOUD_DEVICE_ID}/mqtt-auth`, cached), logs in to EMQX on plain `MQTT_TCP_HOST:MQTT_TCP_PORT` with a unique client ID and subscribes to one of its own topics. This exercises EMQX plus api-internal's `/mqtt/emqx/authn` (CONNECT) and `/mqtt/emqx/authz` (SUBSCRIBE) hooks.
+4. **OTA server (`ota`)**: GETs `OTA_URL` without certificate verification (the cert is self-signed and may be pinned by devices). Any non-5xx answer is healthy; 5xx means nginx cannot reach the `ota` container.
+5. **Auth0 OIDC & Internal API (`api`)**: validates the OIDC discovery document (issuer) and that JWKS returns signing keys, then checks Internal API connectivity and `X-M2M-Token` auth.
+6. **Data Ingestion & TimescaleDB (`ingestion`)**: queries the last 30 minutes of telemetry (`POST /sensors/{sensor_id}/data`) and alerts if there is none or the newest point is older than 15 minutes.
+7. **Thermostat Actuation Roundtrip (`thermostat`)**: verifies discovery (`GET /thermostats`), toggles the demo thermostat setpoint between 21.5 and 22.0 and confirms it is reflected in the Redis snapshot within ~5s. Reports a separate "Demo Device Offline" alert when the snapshot says the device is offline.
+8. **Watched devices online (`devices`)**: one `POST /sensors/snapshot` for `WATCHED_SENSOR_IDS`; each sensor whose device's MQTT status is not `online` gets its own alert and recovery (`device:<sensor_id>`). Skipped when the list is empty.
+
+> The demo device (`demo_virtual_hub_01` with `demo_thermostat` / `demo_switch`) is a **virtual device run by IotCloud2's `automation_runner`** (virtual runtime). It connects to EMQX like a real device and publishes telemetry every 5 minutes, so the ingestion and thermostat checks cover: Internal API → Redis → Rust Gateway → EMQX → automation_runner → EMQX → Rust Gateway → TimescaleDB/Redis.
+
+### Alerting
+
+- Telegram alerts are sent only on state transitions (`HEALTHY → FAILING`, `FAILING → HEALTHY`).
+- A check must fail `ALERT_AFTER_FAILURES` consecutive cycles (default **2**) before alerting, which filters one-off network blips. Set it to `1` for immediate alerts.
+- Transitions from one cycle are combined: an outage that trips several checks sends **one** "N checks failing" message, and one "N checks recovered" message when it clears. Messages list anything that is still failing.
+- The headline is the failure type (e.g. **Internal API Down**), followed by the affected check, the time it started failing (in `ALERT_TIMEZONE`, default `Europe/Madrid`) and a short cause such as `[Errno 111] Connection refused`. Recovery messages include the downtime.
+- If Telegram delivery fails, the alert is retried on the next cycle (state is only updated once delivered).
+- Remote error bodies are truncated so alerts always fit Telegram's 4096-character limit, and the bot token / M2M token are redacted from all logs.
 
 ---
 
@@ -68,6 +75,15 @@ Environment variables in `.env`:
 | `SWITCH_SENSOR_ID` | `demo_switch` | Target switch sensor ID |
 | `TELEGRAM_TOKEN` | *(required)* | Telegram Bot token for sending alert notifications |
 | `TELEGRAM_CHAT_ID` | *(required)* | Telegram chat ID for destination alerts |
+| `PUBLIC_API_URL` | `https://api.dev.iotcloud.es/api/v2/health` | Public API health endpoint probed externally |
+| `MQTT_WSS_URL` | `wss://mqtt.iotcloud.es/mqtt` | MQTT broker WebSocket Secure URL |
+| `MQTT_TCP_HOST` | `mqtt.iotcloud.es` | Host devices use for plain MQTT |
+| `MQTT_TCP_PORT` | `1883` | Plain MQTT port devices use |
+| `OTA_URL` | `https://ota.iotcloud.es/` | OTA firmware server |
+| `WATCHED_SENSOR_IDS` | *(empty)* | Comma-separated sensor IDs whose devices must stay online |
+| `SSL_MIN_DAYS_VALID` | `7` | Alert when a certificate expires within this many days |
+| `ALERT_AFTER_FAILURES` | `2` | Consecutive failed cycles before a Telegram alert is sent |
+| `ALERT_TIMEZONE` | `Europe/Madrid` | Timezone for times shown in alerts |
 | `CHECK_INTERVAL_SECONDS` | `300` | Health check cycle interval in seconds |
 | `LOG_PATH` | `logs/healthCheck.log` | Rotating log file destination |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
@@ -117,6 +133,8 @@ uv run pytest -v
 ---
 
 ## Docker & Deployment
+
+The image runs as an unprivileged user (uid `10001`). `.env` is never copied into the image (see `.dockerignore`); it is injected at runtime via `env_file`. If the mounted `./logs` directory is not writable by that user, the service logs to stdout only (`chown 10001 logs` to enable the file log).
 
 ### Build and Run with Docker Compose
 ```bash

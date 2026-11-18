@@ -1,87 +1,77 @@
 """Tests for the check_service decorator."""
 
-from iotcloud_health.checker import check_service
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import requests
+
+from iotcloud_health.checker import HealthCheckError, check_service, response_detail
 
 
-def test_checker_success_without_previous_failure():
-    notifications = []
+class RecordingReporter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, bool, str]] = []
 
-    def mock_notifier(msg: str) -> bool:
-        notifications.append(msg)
-        return True
+    def report_check(
+        self,
+        check_name: str,
+        healthy: bool,
+        failure_message: str = "",
+        *,
+        display_name: str | None = None,
+    ) -> bool:
+        self.calls.append((check_name, healthy, failure_message))
+        return False
 
-    @check_service("TestService", notifier=mock_notifier)
+
+def test_checker_success_reports_healthy_and_preserves_metadata():
+    reporter = RecordingReporter()
+
+    @check_service("TestService", notifier=reporter)
     def my_check():
         """Sample docstring."""
         return "ok"
 
     assert my_check.__name__ == "my_check"
     assert my_check.__doc__ == "Sample docstring."
-
-    result = my_check()
-    assert result == "ok"
-    assert len(notifications) == 0  # No alert if succeeding normally
+    assert my_check() == "ok"
+    assert reporter.calls == [("TestService", True, "")]
 
 
-def test_checker_failure_and_recovery_transitions():
-    notifications = []
+def test_checker_unexpected_exception_reports_generic_failure():
+    reporter = RecordingReporter()
 
-    def mock_notifier(msg: str) -> bool:
-        notifications.append(msg)
-        return True
-
-    state = {"should_fail": False}
-
-    @check_service("MockService", notifier=mock_notifier)
+    @check_service("MockService", notifier=reporter)
     def sample_check():
-        if state["should_fail"]:
-            raise ValueError("Something broke")
-        return "success"
+        raise ValueError("Something broke")
 
-    # 1. Normal success
-    res = sample_check()
-    assert res == "success"
-    assert len(notifications) == 0
-
-    # 2. Service breaks -> should send failure alert
-    state["should_fail"] = True
-    res = sample_check()
-    assert res is None
-    assert len(notifications) == 1
-    assert "MockService is not working" in notifications[0]
-
-    # 3. Service continues to be broken -> should NOT send duplicate alert
-    res = sample_check()
-    assert res is None
-    assert len(notifications) == 1
-
-    # 4. Service recovers -> should send recovery alert
-    state["should_fail"] = False
-    res = sample_check()
-    assert res == "success"
-    assert len(notifications) == 2
-    assert "MockService is now working" in notifications[1]
-
-    # 5. Service stays healthy -> should NOT send another alert
-    res = sample_check()
-    assert res == "success"
-    assert len(notifications) == 2
+    assert sample_check() is None
+    [(name, healthy, msg)] = reporter.calls
+    assert name == "MockService"
+    assert healthy is False
+    assert "MockService" in msg
+    assert "ValueError: Something broke" in msg
 
 
-def test_checker_with_health_check_error():
-    from iotcloud_health.checker import HealthCheckError
+def test_checker_with_health_check_error_uses_tailored_message():
+    reporter = RecordingReporter()
 
-    notifications = []
-
-    def mock_notifier(msg: str) -> bool:
-        notifications.append(msg)
-        return True
-
-    @check_service("ingestion", notifier=mock_notifier)
+    @check_service("ingestion", notifier=reporter)
     def failing_check():
         raise HealthCheckError("🔴 [M2M Auth Failed] Internal API rejected X-M2M-Token.")
 
-    result = failing_check()
-    assert result is None
-    assert len(notifications) == 1
-    assert "🔴 [M2M Auth Failed]" in notifications[0]
+    assert failing_check() is None
+    assert reporter.calls == [
+        ("ingestion", False, "🔴 [M2M Auth Failed] Internal API rejected X-M2M-Token.")
+    ]
+
+
+def test_response_detail_collapses_whitespace_and_truncates():
+    resp = MagicMock(spec=requests.Response)
+    resp.text = "line1\n\n   line2\t" + "y" * 1000
+    detail = response_detail(resp, limit=50)
+    assert "\n" not in detail
+    assert detail.startswith("line1 line2 ")
+    assert detail.endswith("… [truncated]")
+    assert len(detail) < 70
