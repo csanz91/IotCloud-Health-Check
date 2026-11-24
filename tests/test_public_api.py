@@ -20,7 +20,7 @@ def test_check_public_api_success():
     session.get.return_value = mock_resp
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=45):
-        result = check_public_api("https://api.dev.iotcloud.es/api/v2/health", session=session)
+        result = check_public_api("https://api.iotcloud.es/api/v2/health", session=session)
         assert result is not None
         assert result["status_code"] == 200
         assert result["ssl_days_remaining"] == 45
@@ -37,7 +37,7 @@ def test_check_public_api_ssl_expired():
     decorated = check_service("public_api", notifier=notifier)(get_wrapped(check_public_api))
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=-1):
-        result = decorated("https://api.dev.iotcloud.es/api/v2/health")
+        result = decorated("https://api.iotcloud.es/api/v2/health")
         assert result is None
         assert len(mock_notif_calls) == 1
         name, healthy, msg = mock_notif_calls[0]
@@ -57,7 +57,7 @@ def test_check_public_api_ssl_expiring_soon():
     decorated = check_service("public_api", notifier=notifier)(get_wrapped(check_public_api))
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=3):
-        result = decorated("https://api.dev.iotcloud.es/api/v2/health")
+        result = decorated("https://api.iotcloud.es/api/v2/health")
         assert result is None
         assert len(mock_notif_calls) == 1
         _, healthy, msg = mock_notif_calls[0]
@@ -79,7 +79,7 @@ def test_check_public_api_connection_failure():
     decorated = check_service("public_api", notifier=notifier)(get_wrapped(check_public_api))
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=30):
-        result = decorated("https://api.dev.iotcloud.es/api/v2/health", session=session)
+        result = decorated("https://api.iotcloud.es/api/v2/health", session=session)
         assert result is None
         assert len(mock_notif_calls) == 1
         _, healthy, msg = mock_notif_calls[0]
@@ -104,7 +104,7 @@ def test_check_public_api_http_error():
     decorated = check_service("public_api", notifier=notifier)(get_wrapped(check_public_api))
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=30):
-        result = decorated("https://api.dev.iotcloud.es/api/v2/health", session=session)
+        result = decorated("https://api.iotcloud.es/api/v2/health", session=session)
         assert result is None
         assert len(mock_notif_calls) == 1
         _, healthy, msg = mock_notif_calls[0]
@@ -129,7 +129,7 @@ def test_check_public_api_unhealthy_status():
     decorated = check_service("public_api", notifier=notifier)(get_wrapped(check_public_api))
 
     with patch("iotcloud_health.checks.ssl_helper.get_ssl_days_remaining", return_value=30):
-        result = decorated("https://api.dev.iotcloud.es/api/v2/health", session=session)
+        result = decorated("https://api.iotcloud.es/api/v2/health", session=session)
         assert result is None
         assert len(mock_notif_calls) == 1
         _, healthy, msg = mock_notif_calls[0]

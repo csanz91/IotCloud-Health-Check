@@ -105,7 +105,7 @@ def test_telegram_notifier_escapes_html_in_failure_message():
 
     raw_error = (
         "🔴 [Public API Down] Failed to connect: "
-        "ConnectTimeoutError(<HTTPSConnection(host='api.dev.iotcloud.es', port=443) at 0x7ba6>, "
+        "ConnectTimeoutError(<HTTPSConnection(host='api.iotcloud.es', port=443) at 0x7ba6>, "
         "'Connection timed out & aborted')"
     )
     res = notifier.report_check("public_api", healthy=False, failure_message=raw_error)
@@ -114,7 +114,7 @@ def test_telegram_notifier_escapes_html_in_failure_message():
     _, kwargs = session.post.call_args
     sent_text = kwargs["json"]["text"]
     assert "<HTTPSConnection" not in sent_text
-    assert "&lt;HTTPSConnection(host='api.dev.iotcloud.es', port=443) at 0x7ba6&gt;" in sent_text
+    assert "&lt;HTTPSConnection(host='api.iotcloud.es', port=443) at 0x7ba6&gt;" in sent_text
     assert "&amp; aborted" in sent_text
     assert sent_text.startswith("🚨 <b>Public API Down</b>")
 

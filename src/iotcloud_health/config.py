@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # External Endpoints & SSL Settings
     public_api_url: str = Field(
-        default="https://api.dev.iotcloud.es/api/v2/health",
+        default="https://api.iotcloud.es/api/v2/health",
         validation_alias=AliasChoices("PUBLIC_API_URL", "public_api_url", "PUBLIC_API_HEALTH_URL"),
         description="Public API health endpoint URL (probed externally)",
     )

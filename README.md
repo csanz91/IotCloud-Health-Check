@@ -75,7 +75,7 @@ Environment variables in `.env`:
 | `SWITCH_SENSOR_ID` | `demo_switch` | Target switch sensor ID |
 | `TELEGRAM_TOKEN` | *(required)* | Telegram Bot token for sending alert notifications |
 | `TELEGRAM_CHAT_ID` | *(required)* | Telegram chat ID for destination alerts |
-| `PUBLIC_API_URL` | `https://api.dev.iotcloud.es/api/v2/health` | Public API health endpoint probed externally |
+| `PUBLIC_API_URL` | `https://api.iotcloud.es/api/v2/health` | Public API health endpoint probed externally |
 | `MQTT_WSS_URL` | `wss://mqtt.iotcloud.es/mqtt` | MQTT broker WebSocket Secure URL |
 | `MQTT_TCP_HOST` | `mqtt.iotcloud.es` | Host devices use for plain MQTT |
 | `MQTT_TCP_PORT` | `1883` | Plain MQTT port devices use |
